@@ -27,7 +27,7 @@ const UPSTREAM_TIMEOUT_MS = 120000; // лимит времени на ответ
 // ---------------------------------------------------------------------------
 const INPUT_GUARD_MODE = (process.env.INPUT_GUARD_MODE || 'block').toLowerCase();    // block | mask
 const INPUT_GUARD_INJECTION = (process.env.INPUT_GUARD_INJECTION || 'block').toLowerCase(); // block | warn | off
-const OUTPUT_GUARD_MODE = (process.env.OUTPUT_GUARD_MODE || 'buffer').toLowerCase(); // buffer | off
+const OUTPUT_GUARD_MODE = (process.env.OUTPUT_GUARD_MODE || 'stream').toLowerCase(); // stream | buffer | off
 const TOKEN_BUDGET_PER_HOUR = Number(process.env.TOKEN_BUDGET_PER_HOUR) || 200000;
 const COST_IN_PER_1M = Number(process.env.COST_IN_PER_1M) || 0.27;
 const COST_OUT_PER_1M = Number(process.env.COST_OUT_PER_1M) || 1.10;
@@ -392,7 +392,7 @@ app.post('/api/chat', (req, res, next) => {
         signal: controller.signal,
       });
     } catch (err) {
-      if (req.destroyed) return res.end();
+      if (res.writableEnded || (res.socket && res.socket.destroyed)) return res.end();
       sseJson(res, { type: 'error', text: 'Не удалось связаться с моделью. Попробуйте ещё раз.' });
       return res.end();
     }
@@ -409,6 +409,58 @@ app.post('/api/chat', (req, res, next) => {
     let streamDone = false;
     let raw = '';
     let usage = null;
+    let delivered = 0;
+    let blocked = false;
+    // Окно-задержка: последние GUARD_WINDOW символов не доставляем, пока гейт
+    // не увидит их целиком — частичный секрет не успевает вытечь.
+    const GUARD_WINDOW = 140;
+
+    const doBlock = (detail) => {
+      blocked = true;
+      controller.abort();
+      const inT = usage ? usage.prompt_tokens : estInput;
+      const outT = usage ? usage.completion_tokens : guards.estimateTokens(raw);
+      addCounter('outputBlocks');
+      budgetAccount(ip, inT + outT);
+      audit({ reqId, ip, event: 'blocked_output', kinds: detail, inTokens: inT, outTokens: outT, costUsd: Number(computeCost(inT, outT).toFixed(5)) });
+      sseJson(res, { type: 'error', text: 'Ответ заблокирован системой безопасности.' });
+      res.end();
+    };
+
+    // Инкрементальный выходной гейт: доставляем живой стрим, но с задержкой
+    // в GUARD_WINDOW символов, чтобы успеть оборвать/замаскировать секрет.
+    const flush = () => {
+      if (blocked || delivered >= raw.length) return;
+      if (OUTPUT_GUARD_MODE === 'off') {
+        sseJson(res, { type: 'token', content: raw.slice(delivered) });
+        delivered = raw.length;
+        return;
+      }
+      if (OUTPUT_GUARD_MODE === 'buffer') return; // полный скан после стрима
+
+      const prob = guards.findProblemIndices(raw, OUTPUT_CANARIES);
+      const blockIdx = prob.block.length ? Math.min(...prob.block.map(p => p.index)) : Infinity;
+      // warn-секрет (email/телефон): никогда не режем его посередине. Если
+      // frontier попадает внутрь секрета — держим весь секрет в окне, пока
+      // он не будет виден целиком (тогда маска закроет его полностью).
+      let warnStart = Infinity;
+      let warnEnd = Infinity;
+      if (prob.warn.length) {
+        warnStart = Math.min(...prob.warn.map(p => p.index));
+        warnEnd = Math.max(...prob.warn.filter(p => p.index === warnStart).map(p => p.index + p.len));
+      }
+      let end = Math.min(raw.length - GUARD_WINDOW, blockIdx);
+      if (warnStart < end && warnEnd > end) end = warnStart;
+      if (end > delivered) {
+        const slice = raw.slice(delivered, end);
+        const hasWarn = prob.warn.some(p => p.index < end);
+        sseJson(res, { type: 'token', content: hasWarn ? guards.maskSecretTypes(slice) : slice });
+        delivered = end;
+      }
+      if (blockIdx < raw.length) doBlock(prob.block.map(p => p.kind).join(','));
+    };
+
+    const guardTimer = setInterval(flush, 120);
 
     while (!streamDone) {
       let chunk;
@@ -437,36 +489,58 @@ app.post('/api/chat', (req, res, next) => {
         const delta = json.choices && json.choices[0] && json.choices[0].delta;
         if (delta && typeof delta.content === 'string' && delta.content) raw += delta.content;
       }
+
+      flush();
     }
 
-    // ---- L5 Output guard: проверяем ДО доставки клиенту ----
-    const inTokens = usage ? usage.prompt_tokens : guards.estimateTokens(systemPrompt) + guards.estimateTokens(clean.map(m => m.content).join(''));
+    clearInterval(guardTimer);
+
+    // ---- L5 (финал): доставка остатка + учёт ----
+    const inTokens = usage ? usage.prompt_tokens : estInput;
     const outTokens = usage ? usage.completion_tokens : guards.estimateTokens(raw);
+    let outWarn = false;
 
-    const scan = OUTPUT_GUARD_MODE === 'off'
-      ? { severity: 'ok', problems: [] }
-      : guards.scanOutput(raw, OUTPUT_CANARIES);
+    if (blocked) {
+      return; // doBlock уже отправил error и res.end()
+    }
 
-    if (scan.severity === 'block') {
-      addCounter('outputBlocks');
+    // Клиент оборвал соединение — не пишем в закрытый сокет.
+    if (res.writableEnded || (res.socket && res.socket.destroyed)) {
       budgetAccount(ip, inTokens + outTokens);
-      audit({ reqId, ip, event: 'blocked_output', kinds: scan.problems.map(p => p.kind).join(','), detail: scan.problems.map(p => p.detail).join(' | ').slice(0, 200), inTokens, outTokens, costUsd: computeCost(inTokens, outTokens) });
-      sseJson(res, { type: 'error', text: 'Ответ заблокирован системой безопасности.' });
-      res.end();
-      return;
+      addCounter('tokensIn', inTokens);
+      addCounter('tokensOut', outTokens);
+      addCounter('costUsd', computeCost(inTokens, outTokens));
+      return res.end();
     }
 
-    let delivered = raw;
-    if (scan.severity === 'warn') {
-      addCounter('outputWarns');
-      delivered = guards.maskSecretTypes(raw);
+    if (OUTPUT_GUARD_MODE === 'buffer') {
+      const scan = guards.scanOutput(raw, OUTPUT_CANARIES);
+      if (scan.severity === 'block') {
+        doBlock(scan.problems.map(p => p.kind).join(','));
+        return;
+      }
+      outWarn = scan.severity === 'warn';
+      const CHUNK = 2400;
+      const text = outWarn ? guards.maskSecretTypes(raw) : raw;
+      for (let i = 0; i < text.length; i += CHUNK) {
+        sseJson(res, { type: 'token', content: text.slice(i, i + CHUNK) });
+      }
+      delivered = raw.length;
+    } else {
+      const tail = raw.slice(delivered);
+      if (tail) {
+        const scan = guards.scanOutput(tail, OUTPUT_CANARIES);
+        if (scan.severity === 'block') {
+          doBlock(scan.problems.map(p => p.kind).join(','));
+          return;
+        }
+        outWarn = scan.severity === 'warn';
+        sseJson(res, { type: 'token', content: outWarn ? guards.maskSecretTypes(tail) : tail });
+        delivered = raw.length;
+      }
     }
 
-    // Доставка чанками, чтобы клиент рендерил плавно.
-    const CHUNK = 2400;
-    for (let i = 0; i < delivered.length; i += CHUNK) {
-      sseJson(res, { type: 'token', content: delivered.slice(i, i + CHUNK) });
-    }
+    if (outWarn) addCounter('outputWarns');
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     sseJson(res, { type: 'done', elapsed });

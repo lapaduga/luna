@@ -227,12 +227,72 @@ function detectSuspiciousCommands(text) {
   return found;
 }
 
+/* ---------------------------------------------------------------------------
+   Output guard: позиции проблем (для инкрементального стриминга)
+   --------------------------------------------------------------------------- */
+
 /**
- * Полный скан выхода модели.
- * @param {string} text - сгенерированный текст
- * @param {string[]} canaries - сигнатуры системного промпта (для детекта утечки)
- * @returns {{severity:'ok'|'warn'|'block', problems:Array}}
+ * Находит индексы всех проблем в тексте. Нужно для гибридного стрима:
+ * сервер доставляет контент до минимального block-индекса, потом обрывает.
+ * @returns {{ block: Array<{index:number,kind:string,len:number}>, warn: Array<{index:number,kind:string,len:number}> }}
  */
+function findProblemIndices(text, canaries = []) {
+  const block = [];
+  const warn = [];
+  if (typeof text !== 'string' || !text) return { block, warn };
+
+  for (const p of [...SECRET_PATTERNS, ...FRAGMENT_PATTERNS]) {
+    const re = new RegExp(p.re.source, 'g');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      if (p.validate && !p.validate(m[0])) continue;
+      (p.hard ? block : warn).push({ index: m.index, kind: p.type, len: m[0].length });
+    }
+  }
+
+  const bre = /\b([A-Za-z0-9+/]{24,}={0,2})\b/g;
+  let bm;
+  while ((bm = bre.exec(text)) !== null) {
+    const blob = bm[1];
+    if (!looksLikeBase64(blob)) continue;
+    let decoded = '';
+    try { decoded = Buffer.from(blob, 'base64').toString('utf8'); } catch { continue; }
+    if (!/[\x20-\x7E\u0400-\u04FF]{4,}/.test(decoded)) continue;
+    const inner = detectCore(decoded, { base64: false });
+    if (inner.some(s => s.hard)) block.push({ index: bm.index, kind: 'BASE64_SECRET', len: bm[0].length });
+  }
+
+  for (const c of canaries) {
+    if (!c || c.length <= 3) continue;
+    let i = 0;
+    while ((i = text.indexOf(c, i)) !== -1) {
+      block.push({ index: i, kind: 'system_prompt_leak', len: c.length });
+      i += c.length;
+    }
+  }
+
+  const ure = new RegExp(URL_RE.source, 'g');
+  let um;
+  while ((um = ure.exec(text)) !== null) {
+    const u = um[0];
+    const lower = u.toLowerCase();
+    if (lower.startsWith('http://') || IP_HOST_RE.test(lower) || SUSPICIOUS_HOST_RE.test(lower)) {
+      block.push({ index: um.index, kind: 'suspicious_url', len: um[0].length });
+    }
+  }
+
+  for (const rule of COMMAND_RULES) {
+    const re = new RegExp(rule.source, 'g');
+    let cm;
+    while ((cm = re.exec(text)) !== null) {
+      block.push({ index: cm.index, kind: 'suspicious_command', len: cm[0].length });
+    }
+  }
+
+  return { block, warn };
+}
+
+/** Только блокирующие проблемы: severity 'block' | 'warn' | 'ok'. */
 function scanOutput(text, canaries = []) {
   const problems = [];
   if (typeof text !== 'string' || !text) return { severity: 'ok', problems };
@@ -277,6 +337,7 @@ module.exports = {
   maskSecretTypes,
   classifyRisk,
   scanOutput,
+  findProblemIndices,
   scanBase64,
   estimateTokens,
   redactPreview,

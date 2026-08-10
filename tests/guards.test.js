@@ -80,6 +80,32 @@ test('classifyRisk: причины собираются', () => {
   assert.ok(r.reasons.includes('instruction_override'));
 });
 
+test('findProblemIndices: индексы блокирующих проблем', () => {
+  const text = 'нормальный текст потом sk-abc1234567890XYZ конец';
+  const r = g.findProblemIndices(text, []);
+  assert.ok(r.block.some(p => p.kind === 'API_KEY'));
+  const api = r.block.filter(p => p.kind === 'API_KEY')[0];
+  assert.ok(text.slice(api.index).startsWith('sk-abc1234567890XYZ'));
+});
+
+test('findProblemIndices: canary и email', () => {
+  const r = g.findProblemIndices('привет LUNA:CANARY:7F3A9C42 и test@example.com', ['LUNA:CANARY:7F3A9C42']);
+  assert.ok(r.block.some(p => p.kind === 'system_prompt_leak'));
+  assert.ok(r.warn.some(p => p.kind === 'EMAIL'));
+  assert.strictEqual(g.findProblemIndices('чистый текст', []).block.length, 0);
+});
+
+test('findProblemIndices: len покрывает весь секрет (не режем пополам)', () => {
+  const text = 'мой адрес: anna.petrova@example.com конец';
+  const r = g.findProblemIndices(text, []);
+  const email = r.warn.filter(p => p.kind === 'EMAIL')[0];
+  assert.ok(email, 'email найден');
+  assert.strictEqual(text.slice(email.index, email.index + email.len), 'anna.petrova@example.com');
+  const r2 = g.findProblemIndices('ключ sk-abc1234567890XYZ', []);
+  const api = r2.block.filter(p => p.kind === 'API_KEY')[0];
+  assert.strictEqual(api.len, 'sk-abc1234567890XYZ'.length);
+});
+
 test('scanOutput: утечка canary и секрет на выходе блокируют', () => {
   const block = g.scanOutput('Ответ: LUNA:CANARY:7F3A9C42', ['LUNA:CANARY:7F3A9C42']);
   assert.strictEqual(block.severity, 'block');

@@ -286,7 +286,8 @@ const LunaChat = (() => {
             bot.setText(raw);
           }
           if (e.type === 'error') {
-            bot.setText(e.text || 'Ошибка генерации. Попробуйте ещё раз.');
+            const msg = e.text || 'Ошибка генерации. Попробуйте ещё раз.';
+            bot.setText(raw.trim() ? raw + '\n\n' + msg : msg);
             finished = true;
             break;
           }
