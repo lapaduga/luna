@@ -7,7 +7,7 @@ app.disable('x-powered-by');
 const PORT = process.env.PORT || 3000;
 const DEEPSEEK_URL = process.env.DEEPSEEK_URL || 'https://api.deepseek.com/chat/completions';
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || 'deepseek-v4-pro';
 const DEEPSEEK_THINKING = process.env.DEEPSEEK_THINKING !== 'enabled';
 
 const MAX_MESSAGES = 20;        // максимум сообщений в истории
