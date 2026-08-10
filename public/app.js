@@ -47,6 +47,7 @@ const LunaApp = (() => {
       ? `День цикла ${s.cycleDay}`
       : 'Отметьте первый день менструации, и я начну строить прогнозы';
     $('phase-progress').style.width = (s.progress || 0) + '%';
+    document.querySelector('.progress-track').classList.toggle('hidden', !s.lastStart);
     $('days-to-next').textContent = s.daysToNext == null ? '—' : s.daysToNext === 0 ? 'сегодня' : `через ${s.daysToNext} дн.`;
 
     $('pred-next').textContent = s.nextStart ? LunaCycle.fmtLong(s.nextStart) : '—';
@@ -161,13 +162,30 @@ const LunaApp = (() => {
     }
   }
 
-  /* ---- панели логирования ---- */
-  function showPanel(id) {
+  /* ---- панели логирования (iOS bottom-sheets) ---- */
+  function closePanels() {
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('open'));
+    const s = document.querySelector('.scrim');
+    if (s) s.classList.remove('on');
+  }
+  function showPanel(id) {
+    closePanels();
     $(id).classList.add('open');
+    let s = document.querySelector('.scrim');
+    if (!s) {
+      s = document.createElement('div');
+      s.className = 'scrim';
+      document.body.appendChild(s);
+    }
+    s.classList.add('on');
   }
   function hidePanel(id) {
     $(id).classList.remove('open');
+    const anyOpen = document.querySelector('.panel.open');
+    if (!anyOpen) {
+      const s = document.querySelector('.scrim');
+      if (s) s.classList.remove('on');
+    }
   }
 
   function openPeriodPanel() {
@@ -177,7 +195,6 @@ const LunaApp = (() => {
     $('period-notes').value = '';
     switchTab('calendar');
     showPanel('panel-period');
-    $('panel-period').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function savePeriod() {
@@ -286,9 +303,11 @@ const LunaApp = (() => {
     });
 
     document.querySelectorAll('.panel-close').forEach(btn => {
-      btn.addEventListener('click', () => {
-        btn.closest('.panel').classList.remove('open');
-      });
+      btn.addEventListener('click', () => closePanels());
+    });
+
+    document.body.addEventListener('click', (e) => {
+      if (e.target.closest('.scrim')) closePanels();
     });
 
     renderDashboard();
