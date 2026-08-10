@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="description" content="Луна — бережный трекинг женского цикла и поддержка. Прогноз месячных, фазы цикла, советы и аффирмации.">
+  <title>Луна — женский цикл и поддержка</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" focusable="false">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor"/>
+        </svg>
+        <div class="brand-text">
+          <span class="brand-name">Луна</span>
+          <span class="brand-sub">женский цикл и поддержка</span>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="Разделы">
+        <button class="tab active" data-tab="dashboard" type="button">Мой цикл</button>
+        <button class="tab" data-tab="calendar" type="button">Календарь</button>
+        <button class="tab" data-tab="chat" type="button">Поддержка</button>
+      </nav>
+    </header>
+
+    <main>
+      <!-- ==================== ДАШБОРД ==================== -->
+      <section id="view-dashboard" class="view active">
+        <div class="card phase-card">
+          <div class="phase-top">
+            <div>
+              <h2 id="phase-name">Нет данных</h2>
+              <p id="phase-day">Отметьте первый день менструации, и я начну строить прогнозы</p>
+            </div>
+            <div class="phase-badge">
+              <span id="days-to-next">—</span>
+              <small>до следующих</small>
+            </div>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div class="progress-fill" id="phase-progress"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Прогноз цикла</h3>
+          <ul class="pred-list">
+            <li><span>Следующие месячные</span><strong id="pred-next">—</strong></li>
+            <li><span>Овуляция (примерно)</span><strong id="pred-ovul">—</strong></li>
+            <li><span>Фертильное окно</span><strong id="pred-fertile">—</strong></li>
+            <li><span>Средняя длина цикла</span><strong id="pred-cycle">—</strong></li>
+          </ul>
+        </div>
+
+        <div class="card moon-card">
+          <div class="moon-icon" id="moon-icon"></div>
+          <div>
+            <h3>Луна сегодня</h3>
+            <p class="moon-name" id="moon-name">—</p>
+            <p class="moon-guidance" id="moon-guidance">—</p>
+          </div>
+        </div>
+
+        <div class="card affirmation-card">
+          <h3>Аффирмация дня</h3>
+          <p id="affirmation-text"></p>
+        </div>
+
+        <div class="quick-actions">
+          <button id="btn-period" type="button" class="btn btn-primary">Отметить месячные</button>
+          <button id="btn-chat" type="button" class="btn btn-secondary">Поговорить с Луной</button>
+        </div>
+      </section>
+
+      <!-- ==================== КАЛЕНДАРЬ ==================== -->
+      <section id="view-calendar" class="view">
+        <div class="card">
+          <div class="cal-header">
+            <button id="cal-prev" class="icon-btn" type="button" aria-label="Предыдущий месяц">‹</button>
+            <h3 id="cal-title"></h3>
+            <button id="cal-next" class="icon-btn" type="button" aria-label="Следующий месяц">›</button>
+            <button id="cal-today" class="btn btn-ghost" type="button">Сегодня</button>
+          </div>
+
+          <div class="cal-weekdays" aria-hidden="true">
+            <span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+
+          <div class="cal-legend">
+            <span><i class="dot dot-period"></i>менструация</span>
+            <span><i class="dot dot-predicted"></i>прогноз</span>
+            <span><i class="dot dot-fertile"></i>фертильное окно</span>
+            <span><i class="dot dot-ovulation"></i>овуляция</span>
+          </div>
+
+          <div class="cal-hint">Нажмите на день, чтобы записать самочувствие и симптомы.</div>
+        </div>
+
+        <div class="card">
+          <h3>Записи</h3>
+          <div id="periods-list"></div>
+        </div>
+
+        <!-- Панель: отметка месячных -->
+        <div class="panel" id="panel-period">
+          <div class="panel-header">
+            <h3>Отметить месячные</h3>
+            <button class="panel-close icon-btn" type="button" aria-label="Закрыть">✕</button>
+          </div>
+          <label class="field">
+            <span>Начало</span>
+            <input type="date" id="period-start" required>
+          </label>
+          <label class="field">
+            <span>Конец</span>
+            <input type="date" id="period-end">
+          </label>
+          <label class="field">
+            <span>Заметка</span>
+            <textarea id="period-notes" rows="2" placeholder="Например: боли были сильными"></textarea>
+          </label>
+          <div class="panel-actions">
+            <button id="period-save" class="btn btn-primary" type="button">Сохранить</button>
+            <button id="period-cancel" class="btn btn-ghost" type="button">Отмена</button>
+          </div>
+        </div>
+
+        <!-- Панель: самочувствие -->
+        <div class="panel" id="panel-symptom">
+          <div class="panel-header">
+            <h3 id="symptom-date">—</h3>
+            <button class="panel-close icon-btn" type="button" aria-label="Закрыть">✕</button>
+          </div>
+          <input type="hidden" id="symptom-iso">
+          <div class="seg-block">
+            <span class="seg-label">Боль</span>
+            <div class="seg-group" id="seg-pain">
+              <button class="seg-btn active" type="button" data-val="0">Нет</button>
+              <button class="seg-btn" type="button" data-val="1">Слабая</button>
+              <button class="seg-btn" type="button" data-val="2">Умеренная</button>
+              <button class="seg-btn" type="button" data-val="3">Сильная</button>
+            </div>
+          </div>
+          <div class="seg-block">
+            <span class="seg-label">Выделения</span>
+            <div class="seg-group" id="seg-flow">
+              <button class="seg-btn active" type="button" data-val="0">Нет</button>
+              <button class="seg-btn" type="button" data-val="1">Лёгкие</button>
+              <button class="seg-btn" type="button" data-val="2">Обычные</button>
+              <button class="seg-btn" type="button" data-val="3">Обильные</button>
+            </div>
+          </div>
+          <div class="seg-block">
+            <span class="seg-label">Настроение</span>
+            <div class="seg-group" id="seg-mood">
+              <button class="seg-btn active" type="button" data-val="0">Низкое</button>
+              <button class="seg-btn" type="button" data-val="1">Обычное</button>
+              <button class="seg-btn" type="button" data-val="2">Хорошее</button>
+              <button class="seg-btn" type="button" data-val="3">Отличное</button>
+            </div>
+          </div>
+          <label class="field">
+            <span>Заметка</span>
+            <textarea id="symptom-notes" rows="2" placeholder="Как вы себя чувствуете в этот день?"></textarea>
+          </label>
+          <div class="panel-actions">
+            <button id="symptom-save" class="btn btn-primary" type="button">Сохранить</button>
+            <button id="symptom-cancel" class="btn btn-ghost" type="button">Отмена</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== ЧАТ ==================== -->
+      <section id="view-chat" class="view">
+        <div class="chat-wrap">
+          <div id="chat-messages" class="chat-messages"></div>
+          <div class="chips"></div>
+          <div class="chat-input-row">
+            <textarea id="chat-input" rows="1" placeholder="Напишите Луне..." aria-label="Сообщение"></textarea>
+            <button id="chat-send" class="btn btn-primary" type="button">Отправить</button>
+            <button id="chat-cancel" class="btn btn-ghost hidden" type="button">Стоп</button>
+            <button id="chat-clear" class="icon-btn" type="button" title="Очистить диалог" aria-label="Очистить диалог">✕</button>
+          </div>
+          <p class="disclaimer">Луна — помощница, а не врач. При сильной боли, обильных выделениях или нарушении цикла обязательно обратитесь к гинекологу.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="cycle.js"></script>
+  <script src="chat.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

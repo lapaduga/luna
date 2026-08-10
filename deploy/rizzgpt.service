@@ -1,0 +1,17 @@
+# systemd unit: /etc/systemd/system/rizzgpt.service
+[Unit]
+Description=Luna - Women's Cycle Tracker & AI Support
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/rizzgpt
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/rizzgpt/.env.production
+
+[Install]
+WantedBy=multi-user.target
