@@ -111,9 +111,20 @@ const LunaChat = (() => {
 
   /* ---- сообщения ---- */
 
+  /* ---- аватар Луны (наша SVG-константа) ---- */
+  const AVATAR_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="currentColor"/></svg>';
+
   function addMessage(role, content, streaming = false) {
     const wrapper = document.createElement('div');
     wrapper.className = `msg msg--${role}`;
+
+    if (role === 'bot') {
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      avatar.innerHTML = AVATAR_SVG;
+      wrapper.appendChild(avatar);
+    }
 
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
