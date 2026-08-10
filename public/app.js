@@ -175,6 +175,7 @@ const LunaApp = (() => {
     $('period-start').value = todayISO;
     $('period-end').value = todayISO;
     $('period-notes').value = '';
+    switchTab('calendar');
     showPanel('panel-period');
   }
 
