@@ -4,7 +4,8 @@
   "description": "Луна — трекинг женского цикла и ИИ-поддержка (облачный DeepSeek)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=18"
