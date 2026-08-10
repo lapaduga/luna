@@ -23,15 +23,15 @@ jobs:
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               -o ConnectTimeout=20 \
               "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
-set -e
-cd /opt/rizzgpt
-if [ ! -d .git ]; then git init -b main; fi
-if ! git remote get-url origin >/dev/null 2>&1; then
-  git remote add origin https://github.com/${{ github.repository }}.git
-fi
-git fetch origin main
-git reset --hard origin/main
-npm install --omit=dev
-systemctl restart rizzgpt
-echo "Deploy complete: $(date)"
-REMOTE
+          set -e
+          cd /opt/rizzgpt
+          if [ ! -d .git ]; then git init -b main; fi
+          if ! git remote get-url origin >/dev/null 2>&1; then
+            git remote add origin https://github.com/${{ github.repository }}.git
+          fi
+          git fetch origin main
+          git reset --hard origin/main
+          npm install --omit=dev
+          systemctl restart rizzgpt
+          echo "Deploy complete: $(date)"
+          REMOTE
