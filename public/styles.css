@@ -817,24 +817,20 @@ textarea { resize: vertical; }
 }
 
 /* ---------- подсказки ---------- */
-/* Появляются только в пустом диалоге (класс ставит chat.js) и скроллятся
-   горизонтально, чтобы не съедать вертикаль у списка сообщений. */
+/* На десктопе чипы переносятся на новую строку; скролл — только на телефонах,
+   где им нужен один ряд, чтобы не съедать вертикаль у списка сообщений. */
 .chips {
   display: flex;
-  flex-wrap: nowrap;
-  overflow-x: auto;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding: 0 16px 10px;
-  scrollbar-width: none;
   flex: none;
 }
 
-.chips::-webkit-scrollbar { display: none; }
+.chips-label { font-size: 12px; color: var(--label-2); margin-right: 2px; }
 
 .chat-wrap.has-history .chips { display: none; }
-
-.chips-label { font-size: 12px; color: var(--label-2); margin-right: 2px; flex: none; }
 
 .chip {
   appearance: none;
@@ -847,8 +843,6 @@ textarea { resize: vertical; }
   color: var(--tint);
   cursor: pointer;
   font-family: var(--sans);
-  white-space: nowrap;
-  flex: none;
   transition: background 0.15s ease, transform 0.1s ease;
 }
 
@@ -913,6 +907,17 @@ textarea { resize: vertical; }
 /* Компактная шапка на телефонах — больше места контенту */
 @media (max-width: 480px) {
   .app-header { padding: calc(10px + env(safe-area-inset-top)) 14px 8px; }
+
+  /* Чипы в один ряд с горизонтальным скроллом — не тратят вертикаль */
+  .chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .chips::-webkit-scrollbar { display: none; }
+
+  .chips-label, .chip { flex: none; white-space: nowrap; }
 
   .brand-name { font-size: 23px; }
 
