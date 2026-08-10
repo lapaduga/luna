@@ -47,7 +47,7 @@ const LunaApp = (() => {
       ? `День цикла ${s.cycleDay}`
       : 'Отметьте первый день менструации, и я начну строить прогнозы';
     $('phase-progress').style.width = (s.progress || 0) + '%';
-    $('days-to-next').textContent = s.daysToNext != null ? `через ${s.daysToNext} дн.` : '—';
+    $('days-to-next').textContent = s.daysToNext == null ? '—' : s.daysToNext === 0 ? 'сегодня' : `через ${s.daysToNext} дн.`;
 
     $('pred-next').textContent = s.nextStart ? LunaCycle.fmtLong(s.nextStart) : '—';
     $('pred-ovul').textContent = s.ovulation ? LunaCycle.fmtLong(s.ovulation) : '—';
@@ -177,6 +177,7 @@ const LunaApp = (() => {
     $('period-notes').value = '';
     switchTab('calendar');
     showPanel('panel-period');
+    $('panel-period').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   function savePeriod() {

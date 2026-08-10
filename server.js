@@ -15,6 +15,7 @@ const MAX_MSG_LEN = 4000;       // символов на одно сообщен
 const MAX_TEMPERATURE = 2;
 const MAX_TOKENS = 2048;
 const RATE_LIMIT_PER_MIN = 10;  // запросов в минуту на один IP
+const UPSTREAM_TIMEOUT_MS = 120000; // лимит времени на ответ модели
 
 if (!DEEPSEEK_API_KEY) {
   console.error('[FATAL] DEEPSEEK_API_KEY не задан. Проверьте .env / .env.production');
@@ -115,7 +116,7 @@ function isRateLimited(ip) {
 
 app.set('trust proxy', true);
 
-app.use(express.json({ limit: '10kb' }));
+app.use(express.json({ limit: '512kb' }));
 
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -160,6 +161,7 @@ app.post('/api/chat', (req, res, next) => {
   next();
 }, async (req, res) => {
   const startTime = Date.now();
+  let timeoutId = null;
 
   try {
     const { messages, cycleData, temperature, maxTokens } = req.body || {};
@@ -199,6 +201,7 @@ app.post('/api/chat', (req, res, next) => {
     });
 
     const controller = new AbortController();
+    timeoutId = setTimeout(() => controller.abort(), UPSTREAM_TIMEOUT_MS);
     // Внимание: req 'close' срабатывает после приёма тела запроса, а не при обрыве клиента.
     // Отслеживаем обрыв по 'close' на response, пока он не завершён.
     res.on('close', () => {
@@ -274,6 +277,8 @@ app.post('/api/chat', (req, res, next) => {
       sseJson(res, { type: 'error', text: 'Внутренняя ошибка. Попробуйте ещё раз.' });
       res.end();
     } catch {}
+  } finally {
+    clearTimeout(timeoutId);
   }
 });
 
@@ -285,6 +290,7 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-app.listen(PORT, () => {
-  console.log(`[INFO] Luna server on port ${PORT} (model: ${DEEPSEEK_MODEL})`);
+// Слушаем только loopback: наружу приложение отдаёт nginx.
+app.listen(PORT, '127.0.0.1', () => {
+  console.log(`[INFO] Luna server on 127.0.0.1:${PORT} (model: ${DEEPSEEK_MODEL})`);
 });

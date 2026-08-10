@@ -83,9 +83,9 @@ const LunaCycle = (() => {
     const s = toISO(parseISO(startISO));
     const e = endISO ? toISO(parseISO(endISO)) : s;
     if (diffDays(parseISO(s), parseISO(e)) < 0) return { data, error: 'Конец раньше начала' };
-    // Не дублируем пересекающиеся периоды
+    // Не дублируем пересекающиеся периоды: сохраняем только те, что не пересекаются с новым.
     const periods = data.periods.filter(p =>
-      diffDays(parseISO(s), parseISO(p.end)) > 0 && diffDays(parseISO(p.start), parseISO(e)) < 0
+      diffDays(parseISO(e), parseISO(p.start)) > 0 || diffDays(parseISO(p.end), parseISO(s)) > 0
     );
     periods.push({ start: s, end: e, notes: String(notes || '').slice(0, 500) });
     periods.sort((a, b) => a.start < b.start ? -1 : 1);
