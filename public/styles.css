@@ -866,7 +866,23 @@ textarea { resize: vertical; }
 
 #chat-input:focus { background: var(--surface-2); }
 
-.chat-input-row .icon-btn { flex: none; }
+.chat-input-row .btn {
+  flex: none;
+  height: 36px;
+  padding: 0 16px;
+  font-size: 15px;
+  border-radius: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.chat-input-row .icon-btn {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
 
 .disclaimer {
   margin: 0;
