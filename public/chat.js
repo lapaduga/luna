@@ -16,6 +16,7 @@ const LunaChat = (() => {
     cancel: null,
     chips: null,
     clear: null,
+    wrap: null,
   };
 
   let history = [];
@@ -179,8 +180,14 @@ const LunaChat = (() => {
     history = [];
     saveHistory();
     els.messages.replaceChildren();
-    const welcome = addMessage('bot', 'Здравствуйте, я Луна. Я рядом, чтобы помочь разобраться с вашим циклом, поддержать в непростые дни и — если вы этого хотите — поговорить о том, что живёт глубже тела: о ритмах, душе и внутреннем свете. Как вы себя чувствуете?');
+    addMessage('bot', 'Здравствуйте, я Луна. Я рядом, чтобы помочь разобраться с вашим циклом, поддержать в непростые дни и — если вы этого хотите — поговорить о том, что живёт глубже тела: о ритмах, душе и внутреннем свете. Как вы себя чувствуете?');
     renderSuggestionChips();
+    syncChatState();
+  }
+
+  /* ---- чипы-подсказки: видны только в пустом диалоге ---- */
+  function syncChatState() {
+    if (els.wrap) els.wrap.classList.toggle('has-history', history.length > 0);
   }
 
   /* ---- быстрые подсказки ---- */
@@ -193,7 +200,7 @@ const LunaChat = (() => {
   ];
 
   function renderSuggestionChips() {
-    const container = document.querySelector('.chips');
+    const container = els.chips;
     if (!container) return;
     container.replaceChildren();
     const label = document.createElement('span');
@@ -230,7 +237,9 @@ const LunaChat = (() => {
     addMessage('user', text);
     history.push({ role: 'user', content: text });
     els.input.value = '';
+    els.input.style.height = '';
     setBusy(true);
+    syncChatState();
 
     const bot = addMessage('bot', '', true);
     let raw = '';
@@ -325,8 +334,11 @@ const LunaChat = (() => {
     els.send = document.getElementById('chat-send');
     els.cancel = document.getElementById('chat-cancel');
     els.clear = document.getElementById('chat-clear');
+    els.wrap = document.querySelector('.chat-wrap');
+    els.chips = document.querySelector('.chips');
 
     loadHistory();
+    syncChatState();
 
     if (history.length > 0) {
       for (const m of history) addMessage(m.role === 'user' ? 'user' : 'bot', m.content);
@@ -340,6 +352,10 @@ const LunaChat = (() => {
     els.clear.addEventListener('click', () => {
       if (sending) cancel();
       resetHistory();
+    });
+    els.input.addEventListener('input', () => {
+      els.input.style.height = 'auto';
+      els.input.style.height = Math.min(els.input.scrollHeight, 130) + 'px';
     });
     els.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
