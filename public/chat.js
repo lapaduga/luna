@@ -301,6 +301,7 @@ const LunaChat = (() => {
         bot.setText('Не удалось связаться с сервером. Проверьте соединение.');
       }
     } finally {
+      bot.bubble.removeAttribute('data-streaming');
       abortController = null;
       setBusy(false);
       if (raw.trim()) {
