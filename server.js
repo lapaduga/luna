@@ -411,6 +411,7 @@ app.post('/api/chat', (req, res, next) => {
     let usage = null;
     let delivered = 0;
     let blocked = false;
+    let maskedWarn = false;
     // Окно-задержка: последние GUARD_WINDOW символов не доставляем, пока гейт
     // не увидит их целиком — частичный секрет не успевает вытечь.
     const GUARD_WINDOW = 140;
@@ -454,7 +455,12 @@ app.post('/api/chat', (req, res, next) => {
       if (end > delivered) {
         const slice = raw.slice(delivered, end);
         const hasWarn = prob.warn.some(p => p.index < end);
-        sseJson(res, { type: 'token', content: hasWarn ? guards.maskSecretTypes(slice) : slice });
+        if (hasWarn) {
+          maskedWarn = true;
+          sseJson(res, { type: 'token', content: guards.maskSecretTypes(slice) });
+        } else {
+          sseJson(res, { type: 'token', content: slice });
+        }
         delivered = end;
       }
       if (blockIdx < raw.length) doBlock(prob.block.map(p => p.kind).join(','));
@@ -540,7 +546,7 @@ app.post('/api/chat', (req, res, next) => {
       }
     }
 
-    if (outWarn) addCounter('outputWarns');
+    if (outWarn || maskedWarn) addCounter('outputWarns');
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
     sseJson(res, { type: 'done', elapsed });
