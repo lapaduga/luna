@@ -9,20 +9,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          script: |
-            set -e
-            cd /opt/rizzgpt
-            if [ ! -d .git ]; then git init -b main; fi
-            if ! git remote get-url origin >/dev/null 2>&1; then
-              git remote add origin https://github.com/${{ github.repository }}.git
-            fi
-            git fetch origin main
-            git reset --hard origin/main
-            npm install --omit=dev
-            systemctl restart rizzgpt
-            echo "Deploy complete: $(date)"
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              -o ConnectTimeout=20 \
+              "$VPS_USER@$VPS_HOST" 'bash -s' <<'REMOTE'
+set -e
+cd /opt/rizzgpt
+if [ ! -d .git ]; then git init -b main; fi
+if ! git remote get-url origin >/dev/null 2>&1; then
+  git remote add origin https://github.com/${{ github.repository }}.git
+fi
+git fetch origin main
+git reset --hard origin/main
+npm install --omit=dev
+systemctl restart rizzgpt
+echo "Deploy complete: $(date)"
+REMOTE
