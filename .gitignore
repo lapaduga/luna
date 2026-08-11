@@ -5,3 +5,4 @@ gateway.log*
 .env.*
 !.env.example
 .DS_Store
+day14/gateway_audit.jsonl
