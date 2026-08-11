@@ -118,6 +118,7 @@ config.properties: BASE_URL=http://127.0.0.1:3998 (в .gitignore, не комм�
 
 ## 5. Доказательства (файлы)
 
+- `breakthroughs.md` — для каждой атаки: **точный текст запроса** (message/system/задача) + вердикты + **что именно вернул сервис**.
 - `gateway_results.jsonl` — атаки A1, B1–B4, C1–C6, E1–E5 (+ контроли).
 - `gateway_results2.jsonl` — leak-verbatim/word-per-line/paraphrase, base64url-обход.
 - `loop_A.txt` / `loop_B.txt` / `loop_C.txt` — логи security loop (атаки A, B, C).
