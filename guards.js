@@ -108,7 +108,7 @@ function looksLikeBase64(blob) {
   return letters >= 24 && letters / blob.length > 0.9;
 }
 
-const MAX_BASE64_DEPTH = 3;
+const MAX_BASE64_DEPTH = 7;
 
 /**
  * Ищет base64-блоб и декодирует его рекурсивно (глубина до MAX_BASE64_DEPTH),
@@ -118,7 +118,7 @@ const MAX_BASE64_DEPTH = 3;
 function base64Blobs(text, depth) {
   const out = [];
   if (typeof text !== 'string' || depth > MAX_BASE64_DEPTH) return out;
-  const re = /\b([A-Za-z0-9+/]{24,}={0,2})\b/g;
+  const re = /\b([A-Za-z0-9+/]{24,}={0,2})(?![A-Za-z0-9+/=])/g;
   let m;
   while ((m = re.exec(text)) !== null) {
     const blob = m[1];
