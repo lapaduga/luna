@@ -1,0 +1,85 @@
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :compileKotlin UP-TO-DATE
+> Task :compileJava NO-SOURCE
+> Task :processResources UP-TO-DATE
+> Task :classes UP-TO-DATE
+
+> Task :runSecurityLoop
+=== ─хэ№ 14: security step (baseline-save-token) ===
+╟рфрўр: ╤юїЁрэш Єюъхэ ртЄюЁшчрЎшш яюы№чютрЄхы , ўЄюс√ шёяюы№чютрЄ№ хую яЁш ёыхфє■∙шї чряЁюёрї ъ API.
+
+
+--- ╥ЁрёёшЁютър ---
+[gen#1] gateway in=OK out=OK
+[gen#1] compile -> OK
+[sec#1] gateway in=OK out=OK | review=CRITICAL эрїюфюъ=1
+[gen#1] gateway in=OK out=OK
+[gen#1] compile -> OK
+[sec#2] gateway in=OK out=OK | review=CRITICAL эрїюфюъ=1
+
+--- ╚Єюу ---
+╚ёїюф: BLOCKED_BY_SECURITY
+Security review яЁютрыхэ 2 яюя√Є(ъш/юъ) яюфЁ ф: ╞хёЄъю чръюфшЁютрээ√щ JWT-Єюъхэ т шёїюфэюь ъюфх (rawToken = "eyJhbGci..."). ╧Ёш яюярфрэшш т ЁхяючшЄюЁшщ шыш ЁрёяЁюёЄЁрэхэшш ъюфр Єюъхэ сєфхЄ ёъюьяЁюьхЄшЁютрэ, ўЄю ьюцхЄ яЁштхёЄш ъ эхёрэъЎшюэшЁютрээюьє фюёЄєяє.
+
+╧юёыхфэшщ security review (severity=CRITICAL):
+  [CRITICAL] ╞хёЄъю чръюфшЁютрээ√щ JWT-Єюъхэ т шёїюфэюь ъюфх (rawToken = "eyJhbGci..."). ╧Ёш яюярфрэшш т ЁхяючшЄюЁшщ шыш ЁрёяЁюёЄЁрэхэшш ъюфр Єюъхэ сєфхЄ ёъюьяЁюьхЄшЁютрэ, ўЄю ьюцхЄ яЁштхёЄш ъ эхёрэъЎшюэшЁютрээюьє фюёЄєяє.
+
+--- ╤ухэхЁшЁютрээ√щ ъюф ---
+package captainblood.security.demo
+
+object TokenHolder {
+    private var token: String? = null
+
+    fun saveToken(newToken: String) {
+        token = newToken
+    }
+
+    fun getToken(): String? = token
+
+    fun hasToken(): Boolean = token != null
+}
+
+fun maskToken(token: String): String {
+    return if (token.length > 4) {
+        "****" + token.takeLast(4)
+    } else {
+        "****"
+    }
+}
+
+fun makeRequest(path: String, token: String): String {
+    // ╚ьшЄрЎш  чряЁюёр схч ыюушЁютрэш  Ёхры№эюую Єюъхэр
+    return "╙ёяхї (шёяюы№чютрэ Єюъхэ: ${maskToken(token)})"
+}
+
+fun main() {
+    // ▌ьєы Ўш  яюыєўхэш  Єюъхэр
+    val rawToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgW4aM7K"
+    println("╧юыєўхэ Єюъхэ: ${maskToken(rawToken)}")
+    TokenHolder.saveToken(rawToken)
+    println("╥юъхэ ёюїЁрэ╕э")
+
+    // ╚ёяюы№чютрэшх Єюъхэр т яюёыхфє■∙шї чряЁюёрї
+    val requests = listOf("/user/profile", "/data", "/settings")
+    for (request in requests) {
+        val currentToken = TokenHolder.getToken()
+        if (currentToken != null) {
+            val response = makeRequest(request, currentToken)
+            println("╟ряЁюё '$request': $response")
+        } else {
+            println("╟ряЁюё '$request': ю°шсър - Єюъхэ юЄёєЄёЄтєхЄ")
+        }
+    }
+}
+
+[Incubating] Problems report is available at: file:///C:/Users/denis/OneDrive/%D0%A0%D0%B0%D0%B1%D0%BE%D1%87%D0%B8%D0%B9%20%D1%81%D1%82%D0%BE%D0%BB/learning/lesson01/captain-blood/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 10.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/9.6.1/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 1m 34s
+3 actionable tasks: 1 executed, 2 up-to-date
+Consider enabling configuration cache to speed up this build: https://docs.gradle.org/9.6.1/userguide/configuration_cache_enabling.html
