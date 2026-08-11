@@ -327,6 +327,17 @@ app.post('/api/chat', (req, res, next) => {
         return res.status(403).json({ error: 'Запрос отклонён системой безопасности: текст похож на попытку обхода ограничений.' });
       }
       audit({ reqId, ip, event: 'input_risk_medium', reasons: risk.reasons.join(','), llm: verdict.risk });
+    } else if (risk.risk === 'none' && risk.review) {
+      // Эвристики не нашли ничего, но текст содержит сигнальные слова —
+      // перефраз инъекции: показываем LLM-классификатору (если он включён).
+      let verdict = { risk: 'none', reason: 'review_only' };
+      if (GUARD_LLM) verdict = await llmInputGuard(userText);
+      if (verdict.risk === 'high' && INPUT_GUARD_INJECTION === 'block') {
+        addCounter('blockedInjection');
+        audit({ reqId, ip, event: 'blocked_injection_llm', reasons: ['review'].concat([verdict.reason]).join(','), preview: guards.redactPreview(userText, 120) });
+        return res.status(403).json({ error: 'Запрос отклонён системой безопасности: текст похож на попытку обхода ограничений.' });
+      }
+      audit({ reqId, ip, event: 'input_review', llm: verdict.risk });
     } else if (risk.risk === 'high' && INPUT_GUARD_INJECTION !== 'block') {
       audit({ reqId, ip, event: 'input_risk_high', reasons: risk.reasons.join(','), action: 'warn' });
     }

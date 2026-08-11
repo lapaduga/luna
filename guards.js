@@ -6,14 +6,53 @@
    Слои: sanitize → детект секретов → маска → эвристики инъекций → output-scan.
    =========================================================================== */
 
-const ZERO_WIDTH_RE = /[\u200B-\u200D\u2060\uFEFF]/g;
+// Невидимые / формат-символы: zero-width space, non-joiner/joiner, word-joiner,
+// BOM, bidi-управляющие, arabic letter mark И soft hyphen (U+00AD).
+// Soft hyphen не входил в старый диапазон — через него обходили детект секретов.
+const INVISIBLE_RE = /[\u00AD\u061C\u200B-\u200F\u202A-\u202E\u2060-\u2064\uFEFF]/g;
+const INVISIBLE_CODES = new Set([
+  0x00AD, 0x061C, 0x200B, 0x200C, 0x200D, 0x200E, 0x200F,
+  0x202A, 0x202B, 0x202C, 0x202D, 0x202E,
+  0x2060, 0x2061, 0x2062, 0x2063, 0x2064, 0xFEFF,
+]);
 const CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 const WHITESPACE_RE = /\s+/g;
 
-/** Убираем управляющие и zero-width символы, режем по длине. Строки сообщений сохраняем как есть. */
+/** Убираем управляющие, zero-width, soft hyphen и bidi-символы; режем по длине. */
 function sanitizeText(text, maxLen = 4000) {
   if (typeof text !== 'string') return '';
-  return text.replace(ZERO_WIDTH_RE, '').replace(CONTROL_RE, '').slice(0, maxLen);
+  return text.replace(INVISIBLE_RE, '').replace(CONTROL_RE, '').slice(0, maxLen);
+}
+
+// Визуальные homoglyphs: кириллица, неотличимая от латиницы (только 1:1 буквы).
+// Не включаем Б/Г/Д/З/Л — они не похожи на латинские буквы.
+const CYRILLIC_TO_LATIN = new Map([
+  ['А', 'A'], ['В', 'B'], ['Е', 'E'], ['К', 'K'], ['М', 'M'], ['Н', 'H'], ['О', 'O'],
+  ['Р', 'P'], ['С', 'C'], ['Т', 'T'], ['У', 'Y'], ['Х', 'X'], ['І', 'I'], ['Ѕ', 'S'], ['Ј', 'J'],
+  ['а', 'a'], ['в', 'b'], ['е', 'e'], ['к', 'k'], ['м', 'm'], ['н', 'h'], ['о', 'o'],
+  ['р', 'p'], ['с', 'c'], ['т', 't'], ['у', 'y'], ['х', 'x'], ['і', 'i'], ['ѕ', 's'], ['ј', 'j'],
+]);
+
+/**
+ * Нормализация для детекции: вырезает невидимые символы (soft hyphen, zero-width,
+ * bidi), сводит full-width (FF01–FF5E) к ASCII и кириллические homoglyphs к латинице.
+ * Возвращает { norm, map }, где map[normIndex] = индекс символа в исходной строке —
+ * нужно, чтобы позиции найденных секретов можно было вернуть в оригинал.
+ */
+function normalizeForDetection(text) {
+  if (typeof text !== 'string') return { norm: '', map: [] };
+  let norm = '';
+  const map = [];
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (INVISIBLE_CODES.has(code)) continue;
+    let ch = text[i];
+    if (code >= 0xFF01 && code <= 0xFF5E) ch = String.fromCharCode(code - 0xFEE0);
+    else ch = CYRILLIC_TO_LATIN.get(ch) || ch;
+    map.push(i);
+    norm += ch;
+  }
+  return { norm, map };
 }
 
 /** Для коротких полей (данные цикла): ещё и схлопываем пробелы. */
@@ -69,11 +108,16 @@ function looksLikeBase64(blob) {
   return letters >= 24 && letters / blob.length > 0.9;
 }
 
-// ВАЖНО: scanBase64 создаёт свой (локальный) regex. Общий глобальный regex +
-// рекурсия сбрасывали бы lastIndex и зацикливались. Вложенный скан — без base64,
-// чтобы рекурсия была ограничена глубиной 1.
-function scanBase64(text) {
-  const found = [];
+const MAX_BASE64_DEPTH = 3;
+
+/**
+ * Ищет base64-блоб и декодирует его рекурсивно (глубина до MAX_BASE64_DEPTH),
+ * чтобы поймать и одинарное, и двойное (base64x2) кодирование секрета.
+ * Возвращает массив { s, e, hard } — позиции блоба в text и факт hard-секрета внутри.
+ */
+function base64Blobs(text, depth) {
+  const out = [];
+  if (typeof text !== 'string' || depth > MAX_BASE64_DEPTH) return out;
   const re = /\b([A-Za-z0-9+/]{24,}={0,2})\b/g;
   let m;
   while ((m = re.exec(text)) !== null) {
@@ -82,17 +126,32 @@ function scanBase64(text) {
     let decoded = '';
     try { decoded = Buffer.from(blob, 'base64').toString('utf8'); } catch { continue; }
     if (!/[\x20-\x7E\u0400-\u04FF]{4,}/.test(decoded)) continue;
-    const inner = detectCore(decoded, { base64: false });
-    if (inner.some(s => s.hard)) found.push({ type: 'BASE64_SECRET', hard: true, sample: 'base64-блоб' });
-    else found.push({ type: 'BASE64', hard: false, sample: 'base64-блоб' });
+    const inner = detectCore(decoded, { base64: true, norm: true, depth: depth + 1 });
+    if (inner.length) out.push({ s: m.index, e: m.index + m[0].length, hard: inner.some(s => s.hard) });
   }
-  return found;
+  return out;
 }
 
-/** Ядро сканера. options.base64=false отключает вложенный base64-скан. */
+/** Массив { type, hard, sample } для всех base64-блобов в text. */
+function scanBase64(text, depth) {
+  return base64Blobs(text, depth == null ? 1 : depth).map(b =>
+    b.hard
+      ? { type: 'BASE64_SECRET', hard: true, sample: 'base64-блоб' }
+      : { type: 'BASE64', hard: false, sample: 'base64-блоб' }
+  );
+}
+
+/**
+ * Ядро сканера. options:
+ *  - norm=false — не нормализовать (текст уже нормализован);
+ *  - base64=false — отключить вложенный base64-скан;
+ *  - depth — текущая глубина рекурсии base64.
+ */
 function detectCore(text, options) {
   if (typeof text !== 'string') return [];
-  const base64 = !options || options.base64 !== false;
+  const opts = options || {};
+  const base64 = opts.base64 !== false;
+  const target = (opts.norm === false) ? text : normalizeForDetection(text).norm;
   const out = [];
   const seen = new Set();
   const push = (s) => {
@@ -104,7 +163,7 @@ function detectCore(text, options) {
   for (const p of SECRET_PATTERNS) {
     const re = new RegExp(p.re.source, 'g');
     let m;
-    while ((m = re.exec(text)) !== null) {
+    while ((m = re.exec(target)) !== null) {
       if (p.validate && !p.validate(m[0])) continue;
       push({ type: p.type, hard: p.hard, sample: `[${p.type}]` });
     }
@@ -112,38 +171,69 @@ function detectCore(text, options) {
   for (const p of FRAGMENT_PATTERNS) {
     const re = new RegExp(p.re.source, 'g');
     let m;
-    while ((m = re.exec(text)) !== null) {
+    while ((m = re.exec(target)) !== null) {
       push({ type: p.type, hard: p.hard, sample: `[${p.type}]` });
     }
   }
-  if (base64) for (const s of scanBase64(text)) push(s);
+  if (base64) {
+    for (const b of base64Blobs(target, (opts.depth || 0) + 1)) {
+      push(b.hard
+        ? { type: 'BASE64_SECRET', hard: true, sample: 'base64-блоб' }
+        : { type: 'BASE64', hard: false, sample: 'base64-блоб' });
+    }
+  }
   return out;
 }
 
-/** Все секреты в тексте: [{ type, hard, sample }]. sample уже обезличен. */
+/** Все секреты в тексте (с учётом soft hyphen, fullwidth, homoglyph, base64xN). */
 function detectSecrets(text) {
   return detectCore(text);
 }
 
-const MASK_LABEL = { API_KEY: 'REDACTED_API_KEY', CREDIT_CARD: 'REDACTED_CARD', EMAIL: 'REDACTED_EMAIL', PHONE: 'REDACTED_PHONE' };
+const MASK_LABEL = { API_KEY: 'REDACTED_API_KEY', CREDIT_CARD: 'REDACTED_CARD', EMAIL: 'REDACTED_EMAIL', PHONE: 'REDACTED_PHONE', BASE64: 'REDACTED_BASE64' };
 function maskLabel(type) { return MASK_LABEL[type] || `REDACTED_${type}`; }
 
-/** Заменяем найденные секреты на [REDACTED_*]. Порядок: сначала крупные (ключи/карты), потом soft. */
+const MASK_SOURCES = [...SECRET_PATTERNS, ...FRAGMENT_PATTERNS];
+
+/**
+ * Маскируем секреты с учётом обфускации (soft hyphen, fullwidth, homoglyph,
+ * base64). Детекция идёт по нормализованному тексту, замена — по карте позиций
+ * в оригинале. Перекрывающиеся участки склеиваются, лейбл берётся у «старшего»
+ * паттерна (hard-ключи идут раньше soft).
+ */
 function maskSecretTypes(text) {
   if (typeof text !== 'string') return text;
-  const order = [
-    ...SECRET_PATTERNS.filter(p => p.hard),
-    ...FRAGMENT_PATTERNS.filter(p => p.hard),
-    ...SECRET_PATTERNS.filter(p => !p.hard),
-    ...FRAGMENT_PATTERNS.filter(p => !p.hard),
-  ];
-  let out = text;
-  for (const p of order) {
+  const { norm, map } = normalizeForDetection(text);
+  const spans = [];
+  for (let pi = 0; pi < MASK_SOURCES.length; pi++) {
+    const p = MASK_SOURCES[pi];
     const re = new RegExp(p.re.source, 'g');
-    out = out.replace(re, (match) => {
-      if (p.validate && !p.validate(match)) return match;
-      return `[${maskLabel(p.type)}]`;
-    });
+    let m;
+    while ((m = re.exec(norm)) !== null) {
+      if (p.validate && !p.validate(m[0])) continue;
+      spans.push({ s: m.index, e: m.index + m[0].length, label: maskLabel(p.type), prio: pi });
+    }
+  }
+  for (const b of base64Blobs(norm, 1)) {
+    spans.push({ s: b.s, e: b.e, label: b.hard ? 'REDACTED_BASE64_SECRET' : maskLabel('BASE64'), prio: MASK_SOURCES.length });
+  }
+  if (!spans.length) return text;
+
+  spans.sort((a, b) => a.s - b.s || a.prio - b.prio);
+  const merged = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    if (last && sp.s <= last.e) last.e = Math.max(last.e, sp.e);
+    else merged.push(sp);
+  }
+
+  let out = text;
+  for (let i = merged.length - 1; i >= 0; i--) {
+    const sp = merged[i];
+    const os = map[sp.s];
+    const oe = map[sp.e - 1] + 1;
+    if (os == null || oe <= os) continue;
+    out = out.slice(0, os) + `[${sp.label}]` + out.slice(oe);
   }
   return out;
 }
@@ -170,11 +260,20 @@ const INJECTION_RULES = [
   { risk: 'medium', name: 'always_start', re: /always\s+(?:start|begin)\s+your\s+(?:answer|response|reply)\s+with/i },
   { risk: 'medium', name: 'always_start_ru', re: /(?:всегда\s+начинай|начинай\s+свой\s+ответ|обязательно\s+добавь|в\s+каждом\s+ответе)/i },
   { risk: 'medium', name: 'delimiter_confusion', re: /(?:ignore|забудь).{0,20}(?:<|\[)?(?:system|user_input)/i },
+  // Перефразы, которые в раунде 1 обходили эвристики (партнёрская атака).
+  // ВАЖНО: \w и \b в JS — только ASCII, поэтому после кириллицы используем \p{L}.
+  { risk: 'high', name: 'extraction_quote', re: /(?:процитируй|процитируйте|цитировать|приведи\s+цитат\p{L}*|цитат\p{L}*).{0,80}(?:системн\p{L}*\s+(?:промпт|сообщение|инструкц\p{L}+)|инструкц\p{L}+|текст)/iu },
+  { risk: 'high', name: 'extraction_debug', re: /(?:для\s+(?:дебага|отладки)|debug|дебаг).{0,80}(?:системн\p{L}*|инструкц\p{L}+|промпт|правил\p{L}*)|(?:точный\s+текст|одним\s+блоком|целиком).{0,60}(?:системн\p{L}*|инструкц\p{L}+|промпт)/iu },
+  { risk: 'high', name: 'instruction_supersede', re: /(?:с\s+этого\s+момента|отныне|дальше|теперь)[^.\n]{0,50}?(?:предыдущ\p{L}+|прежн\p{L}+|стары\p{L}*)[^.\n]{0,60}?(?:больше\s+не|не\s+(?:действ\p{L}+|работа\p{L}+|учитывай|соблюдай|нужно)|аннулир\p{L}+|отмен\p{L}+|не\s+актуальн\p{L}*)/iu },
 ];
 
-/** Классификация риска инъекции в тексте. */
+// Сигнальные слова для «спорных» текстов: эвристики дали none, но текст стоит
+// показать LLM-классификатору (GUARD_LLM), чтобы он решил сам.
+const REVIEW_RE = /(?:системн\p{L}*|промпт|инструкц\p{L}+|правил\p{L}*|system\s+prompt|instructions?|rules|повтор\p{L}+|дословн\p{L}+|цитат\p{L}+|процитируй|текст\s+выше|написан\p{L}+\s+выше|дебаг|debug|отладк\p{L}+|с\s+этого\s+момента|отныне)/iu;
+
+/** Классификация риска инъекции в тексте. review=true — эвристики «none», но стоит LLM-перепроверка. */
 function classifyRisk(text) {
-  if (typeof text !== 'string' || !text.trim()) return { risk: 'none', reasons: [] };
+  if (typeof text !== 'string' || !text.trim()) return { risk: 'none', reasons: [], review: false };
   const reasons = [];
   let risk = 'none';
   for (const rule of INJECTION_RULES) {
@@ -184,7 +283,8 @@ function classifyRisk(text) {
       else if (risk !== 'high' && rule.risk === 'medium' && risk === 'none') risk = 'medium';
     }
   }
-  return { risk, reasons };
+  const review = risk === 'none' && REVIEW_RE.test(text);
+  return { risk, reasons, review };
 }
 
 /* ---------------------------------------------------------------------------
@@ -241,25 +341,26 @@ function findProblemIndices(text, canaries = []) {
   const warn = [];
   if (typeof text !== 'string' || !text) return { block, warn };
 
+  // Детекция секретов идёт по нормализованному тексту (soft hyphen, fullwidth,
+  // homoglyph), а индексы возвращаются в координатах ОРИГИНАЛА через map.
+  const { norm, map } = normalizeForDetection(text);
+  const at = (normIdx) => (map[normIdx] != null ? map[normIdx] : normIdx);
+
   for (const p of [...SECRET_PATTERNS, ...FRAGMENT_PATTERNS]) {
     const re = new RegExp(p.re.source, 'g');
     let m;
-    while ((m = re.exec(text)) !== null) {
+    while ((m = re.exec(norm)) !== null) {
       if (p.validate && !p.validate(m[0])) continue;
-      (p.hard ? block : warn).push({ index: m.index, kind: p.type, len: m[0].length });
+      const s = at(m.index);
+      const e = at(m.index + m[0].length - 1) + 1;
+      (p.hard ? block : warn).push({ index: s, kind: p.type, len: e - s });
     }
   }
 
-  const bre = /\b([A-Za-z0-9+/]{24,}={0,2})\b/g;
-  let bm;
-  while ((bm = bre.exec(text)) !== null) {
-    const blob = bm[1];
-    if (!looksLikeBase64(blob)) continue;
-    let decoded = '';
-    try { decoded = Buffer.from(blob, 'base64').toString('utf8'); } catch { continue; }
-    if (!/[\x20-\x7E\u0400-\u04FF]{4,}/.test(decoded)) continue;
-    const inner = detectCore(decoded, { base64: false });
-    if (inner.some(s => s.hard)) block.push({ index: bm.index, kind: 'BASE64_SECRET', len: bm[0].length });
+  for (const b of base64Blobs(norm, 1)) {
+    const s = at(b.s);
+    const e = at(b.e - 1) + 1;
+    (b.hard ? block : warn).push({ index: s, kind: b.hard ? 'BASE64_SECRET' : 'BASE64', len: e - s });
   }
 
   for (const c of canaries) {
@@ -339,6 +440,8 @@ module.exports = {
   scanOutput,
   findProblemIndices,
   scanBase64,
+  base64Blobs,
+  normalizeForDetection,
   estimateTokens,
   redactPreview,
   luhnValid,
