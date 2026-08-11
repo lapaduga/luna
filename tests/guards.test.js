@@ -31,6 +31,29 @@ test('detectSecrets: карта проходит проверку Luhn, а не-
   assert.strictEqual(g.detectSecrets('pay ' + invalid).filter(s => s.type === 'CREDIT_CARD').length, 0);
 });
 
+test('detectSecrets: GitHub-токен ghp_ hard', () => {
+  const r = g.detectSecrets('token ghp_9xY2mQ3nV8wL0kP5rA7sD1fG4hJ6kL8mN0bV1cX');
+  assert.ok(r.some(s => s.type === 'GITHUB_TOKEN' && s.hard));
+});
+
+test('detectSecrets: TOKEN_ASSIGN ("api_key: xxxxxx") soft', () => {
+  const r = g.detectSecrets('мой api_key: abcdef123456 и логин admin');
+  assert.ok(r.some(s => s.type === 'TOKEN_ASSIGN' && !s.hard));
+});
+
+test('detectSecrets: ключ с кириллическим homoglyph (sк-) НЕ ловится (пробел)', () => {
+  // «к» — кириллическая, паттерн /sk-/ не срабатывает, но LLM прочитает как sk-
+  const r = g.detectSecrets('мой ключ sк-abc1234567890XYZ внутри');
+  assert.strictEqual(r.filter(s => s.hard).length, 0, `ожидали пропуск, получили: ${JSON.stringify(r)}`);
+});
+
+test('detectSecrets: base64 с мягким секретом (email) — soft, не блок', () => {
+  const enc = Buffer.from('контакт test@example.com для связи', 'utf8').toString('base64');
+  const r = g.detectSecrets(enc);
+  assert.strictEqual(r.filter(s => s.hard).length, 0, JSON.stringify(r));
+  assert.ok(r.some(s => s.type === 'BASE64' || s.type === 'EMAIL'));
+});
+
 test('detectSecrets: JWT и sk-ключ', () => {
   const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.abcdefgh';
   assert.ok(g.detectSecrets(jwt).some(s => s.type === 'JWT' && s.hard));
